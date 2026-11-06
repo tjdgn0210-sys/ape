@@ -9,7 +9,7 @@ import { useColors } from '@/theme';
 // 계획표에서 쓰는 걷는 유인원(RunningApe)이 제자리에서 걷다가 서서히 사라진다.
 // 예전의 "사람 → 유인원으로 변하는" 그림 묶음(assets/intro/walk-sprite.png)은 더 이상 쓰지 않는다.
 // 아이콘 크기(폭). 영상 칸 전체가 유인원이라 이 폭이 곧 유인원 폭이다. 예전(200)보다 조금 작게.
-const APE_WIDTH = 150;
+const APE_WIDTH = 38;
 // 걸음 세기(0~1): 재생 속도만 정한다. 0.3 = 초당 약 0.94바퀴 = 영상 원래 속도.
 const WALK_EFFORT = 0.3;
 // 인트로 전체 2.4초 = 걷기 2초 + 사라지는 0.4초
