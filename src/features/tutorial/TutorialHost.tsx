@@ -19,6 +19,8 @@ import { layout, radii, useColors } from '@/theme';
 // 앱 시작 화면(걷는 유인원)이 끝난 뒤에 뜨고, 설정의 [?]로 다시 볼 수 있다. 내용이 길면(작은 폰·큰 글자) 가운데가 스크롤된다.
 const INTRO_WAIT_MS = 2600;
 const USE_NATIVE_DRIVER = Platform.OS !== 'web';
+const ENTER_MS = 380; // 튜토리얼이 떠오르는 시간
+const EXIT_MS = 420; // 끝낼 때 사라지는 시간(살짝만)
 
 // 1. 쓸 수 있는 시간 — 실제 1단계 화면처럼 좌우로 나뉜 면(검정 / 흰색)
 const TimeSlide = () => {
@@ -240,15 +242,42 @@ export const TutorialHost = () => {
     if (!seen) setIndex(0);
   }, [seen]);
 
-  if (!ready || seen || !introDone) return null;
+  // 보일 때 살짝 떠오르고, 끝낼 때(마지막 [시작하기]·[건너뛰기]) 앞으로 살짝 다가오며 사라진다 — 앱이 시작되는 느낌(사용자 요청: 너무 딱딱함).
+  const shown = ready && !seen && introDone;
+  const appear = useRef(new Animated.Value(0)).current; // 0 → 1 보이는 정도
+  const closing = useRef(false);
+  useEffect(() => {
+    if (!shown) return;
+    closing.current = false;
+    appear.setValue(0);
+    Animated.timing(appear, { toValue: 1, duration: ENTER_MS, easing: Easing.out(Easing.cubic), useNativeDriver: USE_NATIVE_DRIVER }).start();
+  }, [shown, appear]);
+
+  if (!shown) return null;
 
   const { Illustration, title, desc } = SLIDES[index] ?? SLIDES[0]!;
   const last = index === SLIDE_COUNT - 1;
-  const finish = () => setSeen(true);
+  const finish = () => {
+    if (closing.current) return;
+    closing.current = true;
+    Animated.timing(appear, { toValue: 0, duration: EXIT_MS, easing: Easing.in(Easing.quad), useNativeDriver: USE_NATIVE_DRIVER }).start(() => setSeen(true));
+  };
 
   return (
-    <Modal visible transparent={false} animationType="fade" onRequestClose={finish}>
-      <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top, paddingBottom: Math.max(insets.bottom + 9, 16) }]}>
+    <Modal visible transparent animationType="none" statusBarTranslucent onRequestClose={finish}>
+      <Animated.View
+        style={[
+          styles.root,
+          {
+            backgroundColor: colors.background,
+            paddingTop: insets.top,
+            paddingBottom: Math.max(insets.bottom + 9, 16),
+            opacity: appear,
+            // 사라질 때 살짝 커지며(앞으로 다가오며) 열린다. 처음 나타날 때는 반대로 살짝 작은 데서 커진다.
+            transform: [{ scale: appear.interpolate({ inputRange: [0, 1], outputRange: [1.04, 1] }) }],
+          },
+        ]}
+      >
         <View style={styles.top}>
           {/* 얇은 진행 막대: 지금 장면까지 검게 */}
           <View style={styles.progress} accessibilityLabel={`${index + 1} / ${SLIDE_COUNT}`}>
@@ -286,7 +315,7 @@ export const TutorialHost = () => {
             style={styles.nextButton}
           />
         </View>
-      </View>
+      </Animated.View>
     </Modal>
   );
 };
