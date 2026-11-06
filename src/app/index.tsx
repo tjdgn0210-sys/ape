@@ -60,7 +60,7 @@ const TimeStep = () => {
   return (
     <Screen bottomBar={<MainTabs active="tasks" />}>
       <View style={styles.body}>
-        <StepHeader step={1} title="오늘 쓸 수 있는 시간" quiet note={timeValid ? `총 ${formatDuration(available)}` : undefined} />
+        <StepHeader step={1} title="계획을 실행 할 수 있는 시간" quiet note={timeValid ? `총 ${formatDuration(available)}` : undefined} />
         <View style={styles.card}>
           <TimeRangeCard
             startMin={startMin}

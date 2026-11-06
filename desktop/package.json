@@ -1,0 +1,33 @@
+{
+  "name": "mot-jikimyeon-yuinwon-desktop",
+  "version": "1.0.0",
+  "description": "못지키면 유인원 - 데스크톱 시험판",
+  "main": "main.js",
+  "author": "yuinwon",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.yuinwon.desktop",
+    "productName": "못지키면유인원",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "web/**/*"
+    ],
+    "win": {
+      "target": "portable"
+    },
+    "portable": {
+      "artifactName": "yuinwon-portable.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
+  }
+}

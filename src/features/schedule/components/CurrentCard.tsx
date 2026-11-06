@@ -252,7 +252,10 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
     state.kind === 'finished' ? 'finished' : state.item.kind === 'task' ? `task-${state.item.taskId}` : `break-${state.item.startMin}`;
   // 시작한 일정에서는 유인원이 이미 날아가 버렸으므로 바만 움직인다(시작을 누른 순간 날아간다).
   const started = state.kind === 'task' && state.status === 'running';
-  const apeHidden = started;
+  // 휴식 중에는 유인원이 걸을 필요가 없어서 그리지 않고 바만 움직인다(사용자 요청).
+  const apeHidden = started || state.kind === 'break';
+  // 시작할 일정이 있는 카드(시작 마감 / 시작 전 / 놓침)는 시작 버튼만 크게 둔다(사용자 요청: 시작하는 느낌이 나게).
+  const bigAction = view.action === 'start' || view.action === 'now' || view.action === 'late';
   // 시작한 일정(또는 오늘 일을 모두 제때 시작함)이면 카드가 초록색이 되고 제목 옆에 체크가 붙는다.
   const done = started || (state.kind === 'finished' && state.total > 0 && state.done === state.total);
   const enterStyle = useEnterOnChange(itemKey);
@@ -386,9 +389,9 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
             accessibilityRole="button"
             accessibilityLabel={ACTION_LABEL[view.action]}
             onPress={press}
-            style={[styles.startButton, { backgroundColor: colors.onCard }]}
+            style={[styles.startButton, bigAction && styles.startButtonBig, { backgroundColor: colors.onCard }]}
           >
-            <AppText variant="subtitle" color="cardBg">
+            <AppText variant={view.action === 'start' ? 'heading' : bigAction ? 'body' : 'subtitle'} color="cardBg" numberOfLines={1}>
               {ACTION_TEXT[view.action]}
             </AppText>
           </Pressable>
@@ -444,15 +447,16 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
 const ACTION_TEXT = { start: '시작', now: '지금 시작', late: '늦었어도 시작', skip: '건너뛰기' } as const;
 const ACTION_LABEL = { start: '시작', now: '지금 시작', late: '늦었어도 시작', skip: '휴식 건너뛰고 다음 일정 시작' } as const;
 
+const CARD_RADIUS = 20;
 const CARD_PADDING_X = 20;
 const CARD_PADDING_BOTTOM = 22;
 const BAR_HEIGHT = 4;
 
 const styles = StyleSheet.create({
-  root: { minHeight: 185, borderRadius: 20, paddingHorizontal: CARD_PADDING_X, paddingTop: 21, paddingBottom: CARD_PADDING_BOTTOM },
+  root: { minHeight: 185, borderRadius: CARD_RADIUS, paddingHorizontal: CARD_PADDING_X, paddingTop: 21, paddingBottom: CARD_PADDING_BOTTOM },
   top: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   titleBlock: { flex: 1, paddingLeft: 1 },
-  background: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 20, overflow: 'hidden' },
+  background: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: CARD_RADIUS, overflow: 'hidden' },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   titleText: { flexShrink: 1 },
   checkBadge: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
@@ -465,6 +469,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // 시작할 일정이 있는 카드의 시작 버튼만 크게(사용자 요청: 사진 모양 그대로, 버튼만 약 1.6배).
+  startButtonBig: { height: 54, minWidth: 104, paddingHorizontal: 26, borderRadius: 27 },
   content: { flexGrow: 1 },
   finished: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6 },
   bigBadge: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },

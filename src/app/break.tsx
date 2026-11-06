@@ -22,7 +22,7 @@ import {
 } from '@/features/schedule/types';
 import { usePreviousPlanStore } from '@/features/tasks/previousPlanStore';
 import { useTaskStore } from '@/features/tasks/taskStore';
-import { dateKeyOf, formatClock12, formatDuration, minuteOfDayOf } from '@/lib/time';
+import { dateKeyOf, formatDuration, minuteOfDayOf } from '@/lib/time';
 import { layout, useFontScale } from '@/theme';
 
 const MODE_OPTIONS: readonly { value: BreakMode; label: string }[] = [
@@ -53,8 +53,8 @@ const BreakStep = () => {
 
   const result = useMemo(() => buildSchedule({ tasks, startMin, endMin, breaks }), [tasks, startMin, endMin, breaks]);
   const taskCount = result.items.filter((item) => item.kind === 'task').length;
+  // 쉬는 시간 전체 합
   const breakTotal = result.items.reduce((sum, item) => (item.kind === 'break' ? sum + (item.endMin - item.startMin) : sum), 0);
-  const planEnd = result.items.length > 0 ? Math.max(...result.items.map((item) => item.endMin)) : endMin;
   const canStart = timeValid && result.items.length > 0;
 
   const stepBreak = (delta: number) =>
@@ -113,15 +113,14 @@ const BreakStep = () => {
   if (!gate.ready) return <Screen>{null}</Screen>;
   if (gate.ended) return <Redirect href="/ended" />;
 
-  const endClock = formatClock12(planEnd);
-  // 결과는 줄바꿈 없이 한 줄로.
-  const summary = `쉬는 시간 ${breakTotal > 0 ? formatDuration(breakTotal) : '0분'} · ${endClock.period} ${endClock.text}에 끝나요`;
+  // 결과는 총 쉬는 시간만 단순하게(사용자 요청).
+  const summary = `총 쉬는 시간 ${formatDuration(breakTotal)}`;
   // 좁은 폰(320~360pt)에서도 한 줄에 들어가도록 글자를 한 단계 줄인다.
   const narrow = width < 360;
 
   return (
     <Screen bottomBar={<MainTabs active="tasks" />}>
-      <StepHeader step={3} title="쉬는 시간" onBack={() => router.dismissTo('/tasks')} />
+      <StepHeader step={3} title="쉬는 시간 정하기" onBack={() => router.dismissTo('/tasks')} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* 자동을 먼저, 크게, "추천"과 함께 보여 유도한다. */}
         <View style={styles.section}>
@@ -163,7 +162,7 @@ const BreakStep = () => {
         )}
 
         {timeValid && taskCount > 0 ? (
-          <AppText variant={narrow ? 'subtitle' : 'body'} color="textSecondary" numberOfLines={fontScale > 1.1 ? 2 : 1} accessibilityLiveRegion="polite" style={styles.summary}>
+          <AppText variant={narrow ? 'subtitle' : 'body'} color="textSecondary" numberOfLines={2} accessibilityLiveRegion="polite" style={styles.summary}>
             {summary}
           </AppText>
         ) : null}

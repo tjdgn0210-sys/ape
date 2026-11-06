@@ -31,9 +31,10 @@ type SheetState = { open: boolean; editingId: string | null; initial: TaskForm }
 const CLOSED: SheetState = { open: false, editingId: null, initial: DEFAULT_FORM };
 const HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 } as const;
 
-// 2단계 — 할 일을 적는다. 칸에 글을 쓰기 시작하면 그때만 중요도·걸리는 시간 선택이 나타나고(안 골라도 보통·30분),
-// 엔터(또는 +)로 추가하면 선택은 기본값으로 돌아간다. 키보드는 그대로 남아 연달아 입력할 수 있다.
-// 누를 곳: 입력 칸, (쓰는 동안) 중요도·시간, [다음]. 목록의 할 일은 눌러 수정, 길게 눌러 삭제.
+// 2단계 — 할 일을 적는다. 칸에 글을 쓰기 시작하면 그 아래에 가장 단순한 두 줄이 나온다(사용자 요청):
+//   중요도 [높음|보통|낮음], 걸리는 시간 [−] 30분 [+](5분 단위). 안 골라도 보통·30분.
+// 엔터(또는 +)로 추가하고 키보드는 그대로 남아 연달아 입력할 수 있다. [취소][추가]로 끝낼 수도 있다.
+// 목록의 할 일은 눌러 수정, 길게 눌러 삭제.
 const TasksStep = () => {
   const router = useRouter();
   const colors = useColors();
@@ -114,6 +115,7 @@ const TasksStep = () => {
   // 글을 쓰는 동안(칸을 눌렀거나 글이 있을 때)은 아래가 [취소][확인]으로 바뀌어 [이전][다음]을 잘못 누르지 않는다.
   const [focused, setFocused] = useState(false);
   const typing = focused || hasText;
+  const showOptions = hasText;
   // 하루 반복: 누르기 전 회색, 누르면 검정. 켜 두고 추가하면 매일 반복 할 일로 저장된다.
   const [repeatDaily, setRepeatDaily] = useState(false);
   const resetDraft = useCallback(() => {
@@ -234,7 +236,7 @@ const TasksStep = () => {
 
   return (
     <Screen bottomBar={<MainTabs active="tasks" />}>
-      <StepHeader step={2} title="오늘 할 일" onBack={() => router.dismissTo('/')} />
+      <StepHeader step={2} title="오늘 할 일 정하기" onBack={() => router.dismissTo('/')} />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
@@ -267,12 +269,12 @@ const TasksStep = () => {
         />
 
         {/* 쓰는 동안에만: 중요도·걸리는 시간 */}
-        {hasText ? (
+        {showOptions ? (
           <View style={styles.quick}>
             <QuickOptions importance={importance} minutes={minutes} onImportance={setImportance} onMinutes={setMinutes} />
           </View>
         ) : null}
-        {hasText ? (
+        {showOptions ? (
           <Pressable
             accessibilityRole="switch"
             accessibilityLabel="매일 반복"
@@ -364,10 +366,10 @@ const TasksStep = () => {
       </ScrollView>
 
       {typing ? (
-        // 글을 쓰는 동안: [취소][확인]만. (이전·다음은 쓰기를 마치면 다시 나온다)
+        // 글을 쓰는 동안: [취소][추가]. (이전·다음은 쓰기를 마치면 다시 나온다)
         <View style={styles.typingFooter}>
           <Button variant="gray" label="취소" onPress={cancelTyping} style={styles.cancel} />
-          <Button label="확인" onPress={() => submitText(false)} style={styles.confirm} />
+          <Button label="추가" onPress={() => submitText(false)} disabled={!hasText} style={styles.confirm} />
         </View>
       ) : (
         <StepFooter onPrev={() => router.dismissTo('/')} onNext={pressNext} />

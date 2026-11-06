@@ -1,6 +1,6 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Easing, Platform, Pressable, StyleSheet, View } from 'react-native';
 
 import { AppText, Icon } from '@/components/ui';
 import { useColors } from '@/theme';
@@ -54,7 +54,8 @@ export const StepHeader = ({ step, title, quiet = false, note }: StepHeaderProps
         </Pressable>
       </View>
       <View style={styles.titleRow}>
-        <AppText variant={quiet ? 'body' : 'display'} color={quiet ? 'textTertiary' : 'ink'}>
+        {/* 긴 제목이 두 줄로 넘어갈 때 단어 중간에서 끊기지 않게 한다(웹 전용, 앱은 원래 띄어쓰기에서 줄바꿈). */}
+        <AppText variant={quiet ? 'body' : 'display'} color={quiet ? 'textTertiary' : 'ink'} style={styles.title}>
           {title}
         </AppText>
         {note !== undefined ? (
@@ -77,5 +78,6 @@ const styles = StyleSheet.create({
   segment: { flex: 1, height: 5, borderRadius: 3, overflow: 'hidden' },
   fill: { height: 5, borderRadius: 3 },
   gear: { width: 28, height: 36, alignItems: 'flex-end', justifyContent: 'center' },
+  title: { flexShrink: 1, ...(Platform.OS === 'web' ? ({ wordBreak: 'keep-all' } as object) : null) },
   titleRow: { marginTop: 18, flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between' },
 });

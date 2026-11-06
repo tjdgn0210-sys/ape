@@ -12,6 +12,9 @@ type TextFieldProps = Omit<TextInputProps, 'style'> & {
   inputRef?: Ref<TextInputInstance>;
 };
 
+// 안내 글자는 입력 글자의 0.75배(처음 0.5배였는데 너무 작다는 요청으로 1.5배 키움).
+const PLACEHOLDER_SCALE = 0.75;
+
 // 진한 테두리 상자 안에 큰 글자로 쓰는 입력 칸(사용자 요청: 입력 칸이 안 보임). 오른쪽 + 버튼이 함께 보인다.
 // 안내 글자(placeholder)는 입력 글자 크기의 절반으로, 칸 안에서 위아래 여백이 같게(세로 가운데) 직접 그린다(사용자 요청).
 // (TextInput의 placeholder는 입력 글자와 같은 크기로만 나와서, 비어 있을 때만 위에 따로 얹는다.)
@@ -20,6 +23,12 @@ export const TextField = ({ trailing, size = 'default', inputRef, placeholder, .
   const scale = useFontScale();
   const typography = scaledTypography(size === 'large' ? 'heading' : 'title', scale);
   const empty = (inputProps.value ?? '').length === 0;
+  // 비어 있을 때는 입력 글자도 안내 글자와 같은 크기로 둬서 깜빡이는 커서가 안내 글자에 맞는 크기가 된다(사용자 요청: 커서가 너무 큼).
+  // 쓰기 시작하면 원래 크기로 돌아간다.
+  const caretFit = empty && placeholder !== undefined;
+  const inputTypography = caretFit
+    ? { ...typography, fontSize: typography.fontSize * PLACEHOLDER_SCALE, lineHeight: typography.lineHeight * PLACEHOLDER_SCALE }
+    : typography;
 
   return (
     <View style={[styles.root, { borderColor: colors.ink }]}>
@@ -30,14 +39,14 @@ export const TextField = ({ trailing, size = 'default', inputRef, placeholder, .
           maxFontSizeMultiplier={1.2}
           accessibilityLabel={placeholder}
           {...inputProps}
-          style={[styles.input, { color: colors.ink }, typography]}
+          style={[styles.input, { color: colors.ink }, inputTypography]}
         />
         {empty && placeholder !== undefined ? (
           <View pointerEvents="none" style={styles.placeholderBox}>
             <Text
               numberOfLines={1}
               maxFontSizeMultiplier={1.2}
-              style={{ color: colors.textMuted, fontFamily: typography.fontFamily, fontSize: typography.fontSize * 0.5, lineHeight: typography.lineHeight * 0.5 }}
+              style={{ color: colors.textMuted, fontFamily: typography.fontFamily, fontSize: typography.fontSize * PLACEHOLDER_SCALE, lineHeight: typography.lineHeight * PLACEHOLDER_SCALE }}
             >
               {placeholder}
             </Text>
