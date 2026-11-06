@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 
 // 시작 효과로 날아가는 유인원 한 마리(화면 전체 위에 그린다).
-export type Fly = { id: number; x: number; y: number; width: number; power: number };
+// kick: 사람이 왼쪽에서 걷어차서 날아간다(오른쪽 위로 향한다).
+export type Fly = { id: number; x: number; y: number; width: number; power: number; kick?: boolean };
 
 type FlyState = {
   flies: Fly[];

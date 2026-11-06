@@ -16,7 +16,7 @@ const FlyingApe = ({ fly }: { fly: Fly }) => {
   const screen = useWindowDimensions();
   const land = useFlyStore((state) => state.land);
   const flight = useMemo(
-    () => planFlight(fly.power, screen, { x: fly.x, y: fly.y }),
+    () => planFlight(fly.power, screen, { x: fly.x, y: fly.y }, Math.random, fly.kick === true),
     // 날기 시작할 때 한 번만 정한다
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [fly.id],

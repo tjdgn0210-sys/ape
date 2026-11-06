@@ -32,12 +32,15 @@ export const planFlight = (
   screen: { width: number; height: number },
   start: { x: number; y: number },
   random: () => number = Math.random,
+  // 왼쪽에서 걷어찬 경우: 위쪽 반원의 오른쪽(위에서 38° 오른쪽) 둘레로만 날아간다.
+  kickedRight = false,
 ): Flight => {
   const p = clamp01(power);
   const speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * p * p;
   // 약할 때는 거의 위로(좌우 ±25°), 셀수록 넓게(±55°)
-  const spread = (25 + 30 * p) * (Math.PI / 180);
-  const angle = -Math.PI / 2 + (random() * 2 - 1) * spread;
+  const spread = (kickedRight ? 16 : 25 + 30 * p) * (Math.PI / 180);
+  const center = kickedRight ? (38 * Math.PI) / 180 : 0;
+  const angle = -Math.PI / 2 + center + (random() * 2 - 1) * spread;
 
   // 위로: 꼭대기가 화면 위 여백 아래에 머물게 줄인다. 옆으로: 너무 빨리 화면 밖으로 나가지 않게 줄인다.
   const maxUp = Math.sqrt(2 * GRAVITY * Math.max(40, start.y - TOP_MARGIN));

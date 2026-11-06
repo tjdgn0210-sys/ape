@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, View, type GestureResponderEvent, type ViewInstance } from 'react-native';
 
 import { AppText, Icon } from '@/components/ui';
@@ -6,6 +6,7 @@ import { useColors } from '@/theme';
 import { formatClock, formatTimer } from '@/lib/time';
 
 import type { NowState } from '../resolveNow';
+import { HUMAN_ASPECT_W, HumanFigure } from './HumanFigure';
 import { RunningApe } from './RunningApe';
 import { useFlyStore } from '../flyStore';
 import { useStartEffectStore } from '../startEffectStore';
@@ -17,6 +18,13 @@ const APE_HEIGHT = APE_WIDTH * (700 / 740);
 const DROP_FROM = -200; // 카드 안쪽 위 끝보다 위(카드가 잘라 준다)
 const DROP_DELAY_MS = 350; // 화면이 옆으로 넘어오는 동안은 기다린다
 const USE_NATIVE_DRIVER = Platform.OS !== 'web';
+
+// 시작할 때 벽(카드)을 뚫고 나온 사람이 유인원을 걷어차고, 이후 남은 시간 바 위를 걷는다(사용자 요청).
+const HUMAN_HEIGHT = 30; // 바 위에서 걷는 사람 키(pt). 글자(남은 시간)를 덜 가리게 작게
+const EMERGE_SCALE = 2.4; // 벽을 뚫고 나올 때는 앞에 있어서 크게 보인다
+const FLY_SPEED = 300; // 슈퍼맨처럼 날아가는 속도(pt/초)
+const HIP_OFF = 0.427; // 사람 그림에서 엉덩이가 바닥(발)에서 올라온 높이 비율
+const BURST_RAYS = 10; // 벽이 깨지는 금
 
 const useStartDrop = () => {
   const [armed] = useState(() => useStartEffectStore.getState().armed);
@@ -97,7 +105,7 @@ const useSmoothProgress = (progress: number) => {
     last.current = progress;
   }, [progress, value]);
 
-  return value.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+  return { percent: value.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }), raw: value };
 };
 
 // 시작해서(성공) 초록으로 바뀌는 순간의 효과:
@@ -242,7 +250,7 @@ type CurrentCardProps = {
 export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, onSkipBreak }: CurrentCardProps) => {
   const colors = useColors();
   const view = viewOf(state, nowSec);
-  const percent = useSmoothProgress(view.progress ?? 0);
+  const { percent, raw: progressValue } = useSmoothProgress(view.progress ?? 0);
   const { fall, thud, clipping } = useStartDrop();
   const effort = effortOf(state, view.progress, view.seconds);
   const cardRef = useRef<ViewInstance>(null);
@@ -252,8 +260,11 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
     state.kind === 'finished' ? 'finished' : state.item.kind === 'task' ? `task-${state.item.taskId}` : `break-${state.item.startMin}`;
   // 시작한 일정에서는 유인원이 이미 날아가 버렸으므로 바만 움직인다(시작을 누른 순간 날아간다).
   const started = state.kind === 'task' && state.status === 'running';
+  // 발에 차여 날아간 유인원은 바에서 사라진다(일정이 바뀌면 다시 나온다).
+  const [apeGone, setApeGone] = useState(false);
+  useEffect(() => setApeGone(false), [itemKey]);
   // 휴식 중에는 유인원이 걸을 필요가 없어서 그리지 않고 바만 움직인다(사용자 요청).
-  const apeHidden = started || state.kind === 'break';
+  const apeHidden = started || state.kind === 'break' || apeGone;
   // 시작할 일정이 있는 카드(시작 마감 / 시작 전 / 놓침)는 시작 버튼만 크게 둔다(사용자 요청: 시작하는 느낌이 나게).
   const bigAction = view.action === 'start' || view.action === 'now' || view.action === 'late';
   // 시작하기 전(시작 마감 중·시작 시각 전)에는 카드 아무 곳이나 눌러도 시작된다(사용자 요청). 놓친 일정([늦었어도 시작])은 실수로 누르지 않게 버튼만.
@@ -335,6 +346,7 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
         y: y + height - CARD_PADDING_BOTTOM - BAR_HEIGHT - APE_HEIGHT * 0.9686,
         width: APE_WIDTH,
         power: 1 - progress,
+        kick: true,
       });
     });
   };
@@ -355,19 +367,159 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
     }
   };
 
-  // 시작 버튼(키보드·화면 읽기 도구)으로 눌렀을 때는 오른쪽 위에서 퍼진다. 카드를 직접 누르면 누른 자리에서 퍼진다.
+  // ── 사람(슈퍼맨)이 벽을 뚫고 나와 날아가 유인원을 걷어차고 왔던 길로 돌아가는 연출(사용자 요청) ──
+  // 누른 자리에서 사람이 벽을 뚫고 나와 → 슈퍼맨처럼 날아서 바 위 유인원 바로 왼쪽에 내려앉아 → 발로 걷어찬다(그 순간 시작이 기록되고
+  // 카드가 줄어든다) → 다시 날아올라 왔던 길(누른 자리)로 돌아가 벽 속으로 사라진다. 그 뒤 시작한 카드에서는 바 위에는 아무도 없다.
+  // 시작을 기록하는 시각은 누른 시각 그대로다(연출이 길어도 5분 마감에 불리하지 않게).
+  type HumanMode = 'walk' | 'fly' | 'tilt' | 'tiltBack' | 'kick' | 'rest';
+  const [seqActive, setSeqActive] = useState(false);
+  const seq = useRef(false);
+  const [humanMode, setHumanModeState] = useState<HumanMode>('walk');
+  const humanModeRef = useRef<HumanMode>('walk');
+  const setHumanMode = (mode: HumanMode) => {
+    humanModeRef.current = mode;
+    setHumanModeState(mode);
+  };
+  const [humanFlip, setHumanFlip] = useState(false);
+  const hx = useRef(new Animated.Value(0)).current; // 사람 가운데 가로 위치(카드 안). 바 위에서는 진행 위치에 더하는 보정값
+  const hb = useRef(new Animated.Value(BAR_HIP)).current; // 엉덩이 높이(카드 바닥에서). 크기·기울기는 엉덩이 기준
+  const hs = useRef(new Animated.Value(1)).current; // 크기
+  const hr = useRef(new Animated.Value(0)).current; // 날아가는 방향으로 기울이는 각도(도)
+  const ho = useRef(new Animated.Value(1)).current; // 투명도
+  const hw = useRef(new Animated.Value(started ? 1 : 0)).current; // 1이면 진행 위치를 따라간다
+  const burst = useRef(new Animated.Value(0)).current; // 벽이 깨지는 금
+  const progressNow = useRef(0);
+  const sizeRef = useRef(cardSize);
+  sizeRef.current = cardSize;
+  const pendingPress = useRef<(() => void) | null>(null);
+  const humanAnim = useRef<Animated.CompositeAnimation | null>(null);
+  // 날아온 길(돌아갈 때 쓴다): 누른 자리, 내려앉은 자리
+  const route = useRef({ startX: 0, startHip: 0, landX: 0 });
+  useEffect(() => {
+    const id1 = progressValue.addListener(({ value }) => {
+      progressNow.current = value;
+    });
+    return () => {
+      progressValue.removeListener(id1);
+      humanAnim.current?.stop();
+    };
+  }, [progressValue]);
+
+  const humanW = HUMAN_HEIGHT * HUMAN_ASPECT_W;
+  const progressX = useMemo(
+    () => progressValue.interpolate({ inputRange: [0, 1], outputRange: [CARD_PADDING_X, Math.max(CARD_PADDING_X, cardSize.width - CARD_PADDING_X)] }),
+    [progressValue, cardSize.width],
+  );
+  const humanLeft = useMemo(() => Animated.add(hx, Animated.multiply(hw, progressX)), [hx, hw, progressX]);
+
+  // 연출이 모두 끝났다: 사람은 벽 속으로 사라졌고, 바 위에는 아무도 없다(사용자 요청).
+  const finishSequence = () => {
+    seq.current = false;
+    hw.setValue(0);
+    setSeqActive(false);
+  };
+
+  // 발차기 뒤: 다시 날아올라 왔던 길로 돌아가 벽 속으로 사라진다.
+  const flyBack = () => {
+    const { startX, startHip, landX } = route.current;
+    const backHip = Math.min(startHip, CARD_MIN - 40); // 그 사이 카드가 줄어들어서 카드 안에 들어오게
+    const dx = startX - landX;
+    setHumanFlip(dx < 0);
+    hr.setValue(slopeDeg(dx, BAR_HIP - backHip));
+    setHumanMode('fly');
+    const ms = Math.min(1100, Math.max(520, (Math.hypot(dx, BAR_HIP - backHip) / FLY_SPEED) * 1000));
+    const anim = Animated.parallel([
+      Animated.timing(hx, { toValue: startX, duration: ms, easing: Easing.in(Easing.quad), useNativeDriver: false }),
+      Animated.timing(hb, { toValue: backHip, duration: ms, easing: Easing.in(Easing.quad), useNativeDriver: false }),
+      Animated.timing(hs, { toValue: 0.2, duration: ms, easing: Easing.in(Easing.quad), useNativeDriver: false }),
+      Animated.sequence([
+        Animated.delay(ms * 0.55),
+        Animated.timing(ho, { toValue: 0, duration: ms * 0.45, useNativeDriver: false }),
+      ]),
+    ]);
+    humanAnim.current = anim;
+    anim.start(({ finished }) => {
+      if (finished) finishSequence();
+    });
+  };
+
+  // 한 번만 재생하는 동작이 끝났을 때: 내려앉기 → 발차기 → 다시 눕기 → 날아서 돌아가기
+  const handleHumanDone = () => {
+    const mode = humanModeRef.current;
+    if (mode === 'tilt') setHumanMode('kick');
+    else if (mode === 'kick') setHumanMode('tiltBack');
+    else if (mode === 'tiltBack') flyBack();
+  };
+
+  // 발이 닿는 순간: 유인원이 날아가고 시작이 기록된다(카드가 초록으로 바뀌며 줄어든다).
+  const kickContact = () => {
+    setApeGone(true);
+    const run = pendingPress.current;
+    pendingPress.current = null;
+    run?.();
+  };
+
+  const runKick = (point: { x: number; y: number } | null) => {
+    if (seq.current) return;
+    seq.current = true;
+    pendingPress.current = press;
+    setSeqActive(true);
+    setApeGone(false);
+    const { width, height } = sizeRef.current;
+    const from = point ?? { x: width / 2, y: height * 0.35 };
+    startWave(from);
+    burst.setValue(0);
+    Animated.timing(burst, { toValue: 1, duration: 650, easing: Easing.out(Easing.cubic), useNativeDriver: USE_NATIVE_DRIVER }).start();
+    const progress = view.progress ?? 0;
+    const apeX = CARD_PADDING_X + progress * Math.max(0, width - CARD_PADDING_X * 2);
+    // 사람의 오른쪽 앞(발차기 발끝)이 유인원 몸에 닿는 자리에 내려앉는다.
+    const targetX = apeX - APE_WIDTH / 2 - humanW / 2 + 3;
+    const startX = Math.min(width - 10, Math.max(10, from.x));
+    const startHip = Math.max(BAR_HIP, height - from.y);
+    route.current = { startX, startHip, landX: targetX };
+    hw.setValue(0);
+    hx.setValue(startX);
+    hb.setValue(startHip);
+    hs.setValue(0.2);
+    ho.setValue(1);
+    const dx = targetX - startX;
+    const dyScreen = startHip - BAR_HIP; // 아래로 내려가면 +
+    hr.setValue(slopeDeg(dx, dyScreen));
+    setHumanFlip(dx < 0);
+    setHumanMode('fly');
+    const flyMs = Math.min(1200, Math.max(550, (Math.hypot(dx, dyScreen) / FLY_SPEED) * 1000));
+    const anim = Animated.sequence([
+      Animated.timing(hs, { toValue: EMERGE_SCALE, duration: 220, easing: Easing.out(Easing.back(2)), useNativeDriver: false }),
+      Animated.parallel([
+        Animated.timing(hx, { toValue: targetX, duration: flyMs, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
+        Animated.timing(hb, { toValue: BAR_HIP, duration: flyMs, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
+        Animated.timing(hs, { toValue: 1, duration: flyMs, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
+      ]),
+      // 내려앉기: 기울기를 0으로(몸을 세운다)
+      Animated.timing(hr, { toValue: 0, duration: 120, easing: Easing.out(Easing.quad), useNativeDriver: false }),
+    ]);
+    humanAnim.current = anim;
+    anim.start(({ finished }) => {
+      if (!finished) return;
+      // 눕힌 자세 → 선 자세 그림(tilt)을 재생하고, 끝나면 발차기로 넘어간다.
+      setHumanFlip(false);
+      setHumanMode('tilt');
+    });
+  };
+
+  // 시작 버튼(키보드·화면 읽기 도구)으로 눌렀을 때는 카드 가운데 위쪽에서 나온다. 카드를 직접 누르면 누른 자리에서 나온다.
   const pressButton = () => {
-    if (tapStart) startWave(null);
-    press();
+    if (tapStart) runKick(null);
+    else press();
   };
   const pressCard = (event: GestureResponderEvent) => {
     // 앱은 locationX/Y, 웹은 offsetX/Y(오버레이가 카드 전체라 카드 안 좌표와 같다)
     const ne = event.nativeEvent as unknown as { locationX?: number; locationY?: number; offsetX?: number; offsetY?: number };
     const x = ne.locationX ?? ne.offsetX;
     const y = ne.locationY ?? ne.offsetY;
-    startWave(typeof x === 'number' && typeof y === 'number' && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null);
-    press();
+    runKick(typeof x === 'number' && typeof y === 'number' && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null);
   };
+  const humanOn = seqActive;
   const fillOrigin = origin ?? { x: Math.max(0, cardSize.width - 52), y: 38 };
 
   return (
@@ -414,6 +566,29 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
               />
             ))
           : null}
+        {/* 벽이 깨지는 금: 누른 자리에서 사방으로 퍼지며 사라진다. */}
+        {origin !== null
+          ? Array.from({ length: BURST_RAYS }, (_, index) => (
+              <Animated.View
+                key={`ray-${index}`}
+                style={{
+                  position: 'absolute',
+                  left: origin.x - 1.5,
+                  top: origin.y - 12,
+                  width: 3,
+                  height: 24,
+                  borderRadius: 2,
+                  backgroundColor: colors.onCard,
+                  opacity: burst.interpolate({ inputRange: [0, 0.12, 1], outputRange: [0, 0.9, 0] }),
+                  transform: [
+                    { rotate: `${(360 / BURST_RAYS) * index + (index % 2 === 0 ? 8 : -6)}deg` },
+                    { translateY: burst.interpolate({ inputRange: [0, 1], outputRange: [-6, -(index % 3 === 0 ? 86 : 62)] }) },
+                    { scaleY: burst.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1.4] }) },
+                  ],
+                }}
+              />
+            ))
+          : null}
       </View>
       {/* 내용만 움직인다: 다음 일정으로 바뀌면 오른쪽에서 밀려 들어온다. */}
       <Animated.View style={[styles.content, enterStyle]}>
@@ -447,7 +622,12 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
       ) : (
       <>
       {/* 시작하기 전(tapStart)에는 일정 이름·시각 줄·시작 버튼을 모두 뺀다(사용자 요청). 안내 문구·타이머·바만 남는다. */}
-      {tapStart ? null : (
+      {tapStart ? (
+        // 시작하려는 일정 이름만 왼쪽 위에 둔다(사용자 요청).
+        <AppText variant="cardTitle" color="onCard" numberOfLines={1} style={styles.tapTitle}>
+          {view.title}
+        </AppText>
+      ) : (
       <View style={styles.top}>
         <View style={styles.titleBlock}>
           <View style={styles.titleRow}>
@@ -492,10 +672,10 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
       )}
 
       <View style={tapStart ? styles.hintSpacer : styles.spacer}>
-        {tapStart ? (
+        {tapStart && !seqActive ? (
           <Animated.View style={{ opacity: pulse }}>
             <AppText variant="title" color={mutedColor} numberOfLines={3} style={styles.hintText}>
-              {'박스 안에서\n아무 곳이나 누르면\n시작돼요'}
+              {'아무 곳이나 누르면\n일정이 시작돼요'}
             </AppText>
           </Animated.View>
         ) : null}
@@ -541,8 +721,27 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
       </>
       )}
       </Animated.View>
+      {/* 벽을 뚫고 나온 사람: 유인원을 걷어찬 뒤에는 남은 시간 바 위를 걷는다. */}
+      {humanOn ? (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            bottom: Animated.add(hb, -HUMAN_HEIGHT * HIP_OFF),
+            opacity: ho,
+            left: humanLeft,
+            width: humanW,
+            height: HUMAN_HEIGHT,
+            marginLeft: -humanW / 2,
+            transform: [{ rotate: hr.interpolate({ inputRange: [-90, 90], outputRange: ['-90deg', '90deg'] }) }, { scale: hs }],
+            transformOrigin: `50% ${(1 - HIP_OFF) * 100}%`,
+          }}
+        >
+          <HumanFigure mode={humanMode} height={HUMAN_HEIGHT} color={colors.onCard} flip={humanFlip} onContact={kickContact} onDone={handleHumanDone} />
+        </Animated.View>
+      ) : null}
       {/* 시작하기 전에는 카드 전체가 누르는 곳(맨 위에 투명하게 덮는다). 누른 자리를 알려 파동의 중심으로 쓴다. */}
-      {tapStart ? (
+      {tapStart && !seqActive ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={view.action === null ? '시작' : `${view.title} ${ACTION_LABEL[view.action]}`}
@@ -564,6 +763,15 @@ const CARD_TALL = 330; // 시작하기 전 카드 높이(누를 곳을 넓게)
 const CARD_PADDING_X = 20;
 const CARD_PADDING_BOTTOM = 22;
 const BAR_HEIGHT = 4;
+const BAR_FOOT = CARD_PADDING_BOTTOM + BAR_HEIGHT; // 사람 발이 서는 높이(카드 바닥에서 진행 바 위쪽까지)
+const BAR_HIP = BAR_FOOT + HUMAN_HEIGHT * HIP_OFF; // 그때의 엉덩이 높이
+
+// 날아가는 방향(가로 dx, 화면 아래쪽이 +인 dy)에 맞춰 눕힌 몸을 기울이는 각도. 왼쪽으로 가면(그림을 뒤집어 놓았으니) 부호가 반대.
+const slopeDeg = (dx: number, dy: number) => {
+  const deg = (Math.atan2(dy, Math.max(1, Math.abs(dx))) * 180) / Math.PI;
+  const clamped = Math.max(-50, Math.min(50, deg));
+  return dx >= 0 ? clamped : -clamped;
+};
 
 const styles = StyleSheet.create({
   outer: { borderRadius: CARD_RADIUS },
@@ -589,6 +797,7 @@ const styles = StyleSheet.create({
   tapLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: CARD_RADIUS },
   hintSpacer: { flex: 1, minHeight: 64, justifyContent: 'center' },
   hintText: { textAlign: 'center' },
+  tapTitle: { paddingLeft: 1 },
   finished: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6 },
   bigBadge: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
   finishedTitle: { textAlign: 'center' },
