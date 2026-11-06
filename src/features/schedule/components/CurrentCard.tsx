@@ -274,6 +274,26 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
       pulse.setValue(1);
     };
   }, [tapStart, pulse]);
+  // 시작하기 전 카드는 누를 곳이 넓게 키가 크고(CARD_TALL), 시작을 누르면 원래 크기(CARD_MIN)로 줄어들며 시작한 카드가 된다(사용자 요청).
+  // 처음 그릴 때는 바로 그 크기이고, 이후 바뀔 때만 움직인다. 키(minHeight)는 JS 구동이라 변형(네이티브)을 쓰는 바깥 View와 나눠 둔다.
+  const cardMin = useRef(new Animated.Value(tapStart ? CARD_TALL : CARD_MIN)).current;
+  const sizeMounted = useRef(false);
+  useEffect(() => {
+    if (!sizeMounted.current) {
+      sizeMounted.current = true;
+      return;
+    }
+    // 줄어들기는 유인원이 날아갈 자리를 재는 시간(measureInWindow)을 주려고 살짝 늦게 시작한다.
+    const animation = Animated.timing(cardMin, {
+      toValue: tapStart ? CARD_TALL : CARD_MIN,
+      duration: tapStart ? 450 : 560,
+      delay: tapStart ? 0 : 90,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: false,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [tapStart, cardMin]);
   // 누른 자리에서 퍼지는 파동(링 두 개) + 초록 확산의 시작점
   const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
   const ringA = useRef(new Animated.Value(0)).current;
@@ -355,10 +375,11 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
       ref={cardRef}
       onLayout={(event) => setCardSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
       style={[
-        styles.root,
+        styles.outer,
         { overflow: clipping ? 'hidden' : 'visible', transform: [{ translateY: thud }, { scale: pop }] },
       ]}
     >
+      <Animated.View style={[styles.root, { minHeight: cardMin }]}>
       {/* 카드 배경: 검은 바탕 위에 초록 원이 퍼진다(카드 모양 밖은 잘라 낸다). */}
       <View pointerEvents="none" style={[styles.background, { backgroundColor: colors.cardBg }]}>
         <Animated.View
@@ -473,8 +494,8 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
       <View style={tapStart ? styles.hintSpacer : styles.spacer}>
         {tapStart ? (
           <Animated.View style={{ opacity: pulse }}>
-            <AppText variant="subtitle" color={mutedColor} numberOfLines={2} style={styles.hintText}>
-              박스 안에서 아무 곳이나 누르면 시작돼요
+            <AppText variant="title" color={mutedColor} numberOfLines={3} style={styles.hintText}>
+              {'박스 안에서\n아무 곳이나 누르면\n시작돼요'}
             </AppText>
           </Animated.View>
         ) : null}
@@ -529,6 +550,7 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
           style={styles.tapLayer}
         />
       ) : null}
+      </Animated.View>
     </Animated.View>
   );
 };
@@ -537,12 +559,15 @@ const ACTION_TEXT = { start: '시작', now: '지금 시작', late: '늦었어도
 const ACTION_LABEL = { start: '시작', now: '지금 시작', late: '늦었어도 시작', skip: '휴식 건너뛰고 다음 일정 시작' } as const;
 
 const CARD_RADIUS = 20;
+const CARD_MIN = 185; // 평소 카드 높이(디자인)
+const CARD_TALL = 330; // 시작하기 전 카드 높이(누를 곳을 넓게)
 const CARD_PADDING_X = 20;
 const CARD_PADDING_BOTTOM = 22;
 const BAR_HEIGHT = 4;
 
 const styles = StyleSheet.create({
-  root: { minHeight: 185, borderRadius: CARD_RADIUS, paddingHorizontal: CARD_PADDING_X, paddingTop: 21, paddingBottom: CARD_PADDING_BOTTOM },
+  outer: { borderRadius: CARD_RADIUS },
+  root: { borderRadius: CARD_RADIUS, paddingHorizontal: CARD_PADDING_X, paddingTop: 21, paddingBottom: CARD_PADDING_BOTTOM },
   top: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   titleBlock: { flex: 1, paddingLeft: 1 },
   background: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: CARD_RADIUS, overflow: 'hidden' },
