@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Platform, Pressable, StyleSheet, View, type ViewInstance } from 'react-native';
+import { Animated, Easing, Platform, Pressable, StyleSheet, View, type GestureResponderEvent, type ViewInstance } from 'react-native';
 
 import { AppText, Icon } from '@/components/ui';
 import { useColors } from '@/theme';
@@ -256,6 +256,28 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
   const apeHidden = started || state.kind === 'break';
   // 시작할 일정이 있는 카드(시작 마감 / 시작 전 / 놓침)는 시작 버튼만 크게 둔다(사용자 요청: 시작하는 느낌이 나게).
   const bigAction = view.action === 'start' || view.action === 'now' || view.action === 'late';
+  // 시작하기 전(시작 마감 중·시작 시각 전)에는 카드 아무 곳이나 눌러도 시작된다(사용자 요청). 놓친 일정([늦었어도 시작])은 실수로 누르지 않게 버튼만.
+  const tapStart = view.action === 'start' || view.action === 'now';
+  // 안내 문구가 투명해졌다 돌아오기를 반복한다.
+  const pulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (!tapStart) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 0.15, duration: 1000, easing: Easing.inOut(Easing.sin), useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(pulse, { toValue: 1, duration: 1000, easing: Easing.inOut(Easing.sin), useNativeDriver: USE_NATIVE_DRIVER }),
+      ]),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      pulse.setValue(1);
+    };
+  }, [tapStart, pulse]);
+  // 누른 자리에서 퍼지는 파동(링 두 개) + 초록 확산의 시작점
+  const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
+  const ringA = useRef(new Animated.Value(0)).current;
+  const ringB = useRef(new Animated.Value(0)).current;
   // 시작한 일정(또는 오늘 일을 모두 제때 시작함)이면 카드가 초록색이 되고 제목 옆에 체크가 붙는다.
   const done = started || (state.kind === 'finished' && state.total > 0 && state.done === state.total);
   const enterStyle = useEnterOnChange(itemKey);
@@ -270,6 +292,19 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
   // 오른쪽 위에서 카드의 먼 모서리까지 닿는 원(지름 = 대각선의 2배)
   const ripple = 2 * Math.hypot(cardSize.width, cardSize.height) + 40;
   const mutedColor = done ? 'onDoneMuted' : 'onCardMuted';
+
+  const startWave = (point: { x: number; y: number } | null) => {
+    setOrigin(point);
+    ringA.setValue(0);
+    ringB.setValue(0);
+    Animated.parallel([
+      Animated.timing(ringA, { toValue: 1, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: USE_NATIVE_DRIVER }),
+      Animated.sequence([
+        Animated.delay(160),
+        Animated.timing(ringB, { toValue: 1, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: USE_NATIVE_DRIVER }),
+      ]),
+    ]).start();
+  };
 
   const launchApe = () => {
     const progress = view.progress ?? 0;
@@ -300,6 +335,21 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
     }
   };
 
+  // 시작 버튼(키보드·화면 읽기 도구)으로 눌렀을 때는 오른쪽 위에서 퍼진다. 카드를 직접 누르면 누른 자리에서 퍼진다.
+  const pressButton = () => {
+    if (tapStart) startWave(null);
+    press();
+  };
+  const pressCard = (event: GestureResponderEvent) => {
+    // 앱은 locationX/Y, 웹은 offsetX/Y(오버레이가 카드 전체라 카드 안 좌표와 같다)
+    const ne = event.nativeEvent as unknown as { locationX?: number; locationY?: number; offsetX?: number; offsetY?: number };
+    const x = ne.locationX ?? ne.offsetX;
+    const y = ne.locationY ?? ne.offsetY;
+    startWave(typeof x === 'number' && typeof y === 'number' && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null);
+    press();
+  };
+  const fillOrigin = origin ?? { x: Math.max(0, cardSize.width - 52), y: 38 };
+
   return (
     <Animated.View
       ref={cardRef}
@@ -317,13 +367,32 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
             width: ripple,
             height: ripple,
             borderRadius: ripple / 2,
-            right: -ripple / 2 + 52,
-            top: -ripple / 2 + 38,
+            left: fillOrigin.x - ripple / 2,
+            top: fillOrigin.y - ripple / 2,
             backgroundColor: colors.doneCard,
             opacity: doneFill.interpolate({ inputRange: [0, 0.05, 1], outputRange: [0, 1, 1] }),
             transform: [{ scale: doneFill }],
           }}
         />
+        {origin !== null
+          ? [ringA, ringB].map((ring, index) => (
+              <Animated.View
+                key={index}
+                style={{
+                  position: 'absolute',
+                  width: ripple,
+                  height: ripple,
+                  borderRadius: ripple / 2,
+                  left: origin.x - ripple / 2,
+                  top: origin.y - ripple / 2,
+                  borderWidth: 3,
+                  borderColor: colors.onCard,
+                  opacity: ring.interpolate({ inputRange: [0, 0.1, 1], outputRange: [0, 0.55, 0] }),
+                  transform: [{ scale: ring.interpolate({ inputRange: [0, 1], outputRange: [0.02, 1] }) }],
+                }}
+              />
+            ))
+          : null}
       </View>
       {/* 내용만 움직인다: 다음 일정으로 바뀌면 오른쪽에서 밀려 들어온다. */}
       <Animated.View style={[styles.content, enterStyle]}>
@@ -356,6 +425,8 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
         </View>
       ) : (
       <>
+      {/* 시작하기 전(tapStart)에는 일정 이름·시각 줄·시작 버튼을 모두 뺀다(사용자 요청). 안내 문구·타이머·바만 남는다. */}
+      {tapStart ? null : (
       <View style={styles.top}>
         <View style={styles.titleBlock}>
           <View style={styles.titleRow}>
@@ -388,7 +459,7 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={ACTION_LABEL[view.action]}
-            onPress={press}
+            onPress={pressButton}
             style={[styles.startButton, bigAction && styles.startButtonBig, { backgroundColor: colors.onCard }]}
           >
             <AppText variant={view.action === 'start' ? 'heading' : bigAction ? 'body' : 'subtitle'} color="cardBg" numberOfLines={1}>
@@ -397,8 +468,17 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
           </Pressable>
         ) : null}
       </View>
+      )}
 
-      <View style={styles.spacer} />
+      <View style={tapStart ? styles.hintSpacer : styles.spacer}>
+        {tapStart ? (
+          <Animated.View style={{ opacity: pulse }}>
+            <AppText variant="subtitle" color={mutedColor} numberOfLines={2} style={styles.hintText}>
+              박스 안에서 아무 곳이나 누르면 시작돼요
+            </AppText>
+          </Animated.View>
+        ) : null}
+      </View>
 
       {view.note !== undefined ? (
         <AppText variant="subtitle" color={mutedColor} style={styles.note}>
@@ -440,6 +520,15 @@ export const CurrentCard = ({ state, nowSec, onStart, onStartNow, onLateStart, o
       </>
       )}
       </Animated.View>
+      {/* 시작하기 전에는 카드 전체가 누르는 곳(맨 위에 투명하게 덮는다). 누른 자리를 알려 파동의 중심으로 쓴다. */}
+      {tapStart ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={view.action === null ? '시작' : `${view.title} ${ACTION_LABEL[view.action]}`}
+          onPress={pressCard}
+          style={styles.tapLayer}
+        />
+      ) : null}
     </Animated.View>
   );
 };
@@ -472,6 +561,9 @@ const styles = StyleSheet.create({
   // 시작할 일정이 있는 카드의 시작 버튼만 크게(사용자 요청: 사진 모양 그대로, 버튼만 약 1.6배).
   startButtonBig: { height: 54, minWidth: 104, paddingHorizontal: 26, borderRadius: 27 },
   content: { flexGrow: 1 },
+  tapLayer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: CARD_RADIUS },
+  hintSpacer: { flex: 1, minHeight: 64, justifyContent: 'center' },
+  hintText: { textAlign: 'center' },
   finished: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 6 },
   bigBadge: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
   finishedTitle: { textAlign: 'center' },
